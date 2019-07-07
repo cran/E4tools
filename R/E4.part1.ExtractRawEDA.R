@@ -11,7 +11,9 @@
 #' @param EDA_high_cut This is a LOW PASS filter. What EDA value (in microsiemens) should be used as the maximum cutoff (100 = cuts off samples above 100us)
 #' @param HighPctCutoff what percentage of samples in a five-second block must contain the high cutoff in order to exclude that block?
 #' @param KeepRejectFlag Do you want to keep the flag that shows which data the high and low pass filters rejected? If you want to run the diagnostic steps, you must keep this. Defaults to TRUE.
+#' @param UseMultiCore Do you want to use more than one core for processing? Defaults to FALSE.
 #' @keywords EDA
+#' @importFrom foreach %dopar%
 #' @export
 #' @examples
 #'E4_EDA_Process.part1.ExtractRawEDA(participant_list=c(1001:1003),
@@ -23,11 +25,50 @@
 
 
 E4_EDA_Process.part1.ExtractRawEDA<-function(participant_list,ziplocation,rdslocation.EDA,summarylocation,EDA_low_cut=0,LowPctCutoff=1,EDA_high_cut=1000,HighPctCutoff=1,
-                                             KeepRejectFlag=TRUE){
+                                             KeepRejectFlag=TRUE,UseMultiCore=FALSE){
 
 
-  for (NUMB in participant_list) {
-    message(paste("Starting participant",NUMB))
+  ## for file helper function
+  if(participant_list[1]=="helper"){participant_list<-get("participant_list",envir=E4tools.env)}
+  if(ziplocation=="helper"){ziplocation<-get("ziplocation",envir=E4tools.env)}
+  if(rdslocation.EDA=="helper"){rdslocation.EDA<-get("rdslocation.EDA",envir=E4tools.env)}
+  if(summarylocation=="helper"){summarylocation<-get("summarylocation",envir=E4tools.env)}
+
+
+  `%dopar%` <- foreach::`%dopar%`
+
+##determine the number of cores
+
+  if(UseMultiCore==TRUE){
+  chk <- Sys.getenv("_R_CHECK_LIMIT_CORES_", "")
+
+  if (nzchar(chk) && chk == "TRUE") {
+    # For Testing
+    NumbCoresUse <- 2
+  } else {
+    NumbCoresUse<-parallel::detectCores()[1]-1 #get number of cores and sets it to n-1 (so one core is left over during processing)
+    if(length(participant_list)<NumbCoresUse){NumbCoresUse==length(participant_list)} #if there are more cores than participants, change number of cores to number of participants, to avoid opening unused connections
+
+  }
+}
+
+  if(UseMultiCore==FALSE){NumbCoresUse<-1}
+
+
+  cl<-parallel::makeCluster(NumbCoresUse)
+  doParallel::registerDoParallel(cl)
+
+
+
+  ## for progress bar
+  doSNOW::registerDoSNOW(cl)
+  pb <- utils::txtProgressBar(max = length(participant_list), style = 3)
+  progress <- function(n) utils::setTxtProgressBar(pb, n)
+
+NUMB<-NULL #fix to avoid CRAN note
+  #for (NUMB in participant_list)
+  foreach::foreach(NUMB=participant_list,.options.snow = list(progress = progress)) %dopar% {
+
 
     #get path to participant folder
     zipDIR<-paste(ziplocation,NUMB,sep="")
@@ -44,9 +85,9 @@ E4_EDA_Process.part1.ExtractRawEDA<-function(participant_list,ziplocation,rdsloc
 
       if(file.size(CURR_ZIP)>6400){
         if(file.size(utils::unzip(CURR_ZIP, unzip = "internal",
-                                  exdir=zipDIR,files="EDA.csv"))>500){
+                                  exdir=tempdir(),files="EDA.csv"))>500){
 
-          EDA_single<-utils::read.csv(utils::unzip(CURR_ZIP, unzip = "internal",exdir=zipDIR,
+          EDA_single<-utils::read.csv(utils::unzip(CURR_ZIP, unzip = "internal",exdir=tempdir(),
                                                    files="EDA.csv"),sep=",",header=FALSE) ###extract EDA
           StartTime<-EDA_single[1,1] #get start time
           SamplingRate<-EDA_single[2,1] #get sampling rate (will always be 4hz, but adding here for future-proofing)
@@ -169,16 +210,8 @@ E4_EDA_Process.part1.ExtractRawEDA<-function(participant_list,ziplocation,rdsloc
     summaryfilename<-paste(summarylocation,NUMB,"_summary.csv",sep="")
     utils::write.csv(Session_combined,file=summaryfilename)
 
-    ###create participant-level summary file
-    TotTime<-nrow(EDA)/(4*60*60)
-    PartSummary<-c(NUMB,TotTime,nrow(EDA),sum(EDA$EDA_reject),nrow(Session_combined))
-    if(exists("AllPartSummary")==FALSE){AllPartSummary<-NULL}
-    AllPartSummary<-as.data.frame(rbind(AllPartSummary,PartSummary))
   }
 
-  ####merge participant-level summary file and save
-  if(!dir.exists(summarylocation)==TRUE){dir.create(summarylocation,recursive=TRUE)}
-  names(AllPartSummary)<-c("ID","TotalTime","NumbSamples","NumbRejected","NumbSamples")
-  Allsummaryfilename<-paste(summarylocation,"ALL_summary.csv",sep="")
-  utils::write.csv(AllPartSummary,file=Allsummaryfilename)
+
+  parallel::stopCluster(cl)
 }

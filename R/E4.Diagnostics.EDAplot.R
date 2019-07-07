@@ -20,6 +20,12 @@
 
 E4.Diagnostics.EDAplot<-function(participant_list,rdslocation.binnedEDA,rdslocation.buttonpress,plotlocation.EDA,RejectFlagCount=48,Plot_E4s=TRUE,display_plot=FALSE){
 
+  ## for file helper function
+  if(participant_list[1]=="helper"){participant_list<-get("participant_list",envir=E4tools.env)}
+  if(rdslocation.binnedEDA=="helper"){rdslocation.binnedEDA<-get("rdslocation.binnedEDA",envir=E4tools.env)}
+  if(rdslocation.buttonpress=="helper"){rdslocation.buttonpress<-get("rdslocation.buttonpress",envir=E4tools.env)}
+  if(plotlocation.EDA=="helper"){plotlocation.EDA<-get("plotlocation.EDA",envir=E4tools.env)}
+
   ##Open button press file (since that only needs to be done once per set b/c all participants' data are in one file)
   if(rdslocation.buttonpress!=FALSE){Buttons<-readRDS(paste(rdslocation.buttonpress,"button_presses.rds",sep=""))}
 
@@ -89,7 +95,7 @@ GoodLabel<-paste(round((stats::ftable(PlotData$EDA_reject_CAT)[2]/sum(stats::fta
 BinSize<-round((PlotData$ts[5]-PlotData$ts[4])/(60*1000),0)
 
 ##make plot####
-
+ts_time<-EDA_HighLowPass<-EDA_reject_CAT<-ts_date<-TEMP_C<-TEMP_F<-E4_serial<-NULL #fix to avoid CRAN note
 
 PlotOut<-ggplot2::ggplot()+
   ggplot2::geom_path(ggplot2::aes(x=ts_time,y=EDA_HighLowPass,color=as.factor(EDA_reject_CAT),group=1),data=PlotData)+
